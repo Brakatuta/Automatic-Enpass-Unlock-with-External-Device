@@ -13,8 +13,14 @@ import pyautogui
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 
-# Volume Name of the External Device that contains the Enpass maaster password
-SECURE_USB_DEVICE_NAME : str = "THEDATAS"
+SETTINGS : dict = {}
+
+def load_settings():
+    global SETTINGS
+    settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
+    if os.path.exists(settings_file):
+        with open(settings_file, 'r') as file:
+            SETTINGS = json.load(file)
 
 def write_metadata(file_path, attribute_name, value):
     metadata_file = f"{file_path}.metadata.json"
@@ -145,7 +151,7 @@ def scan_for_unlock_device() -> None:
     while not end_scan:
         devices = get_usb_devices()
         for device in devices:
-            if device['volume_name'] == SECURE_USB_DEVICE_NAME:
+            if device['volume_name'] == SETTINGS["SECURE_USB_DEVICE_NAME"]:
                 end_scan = True
                 unlock_enpass(device['path'])
                 break
@@ -153,4 +159,5 @@ def scan_for_unlock_device() -> None:
         time.sleep(1)
 
 if __name__ == "__main__":
+    load_settings()
     scan_for_unlock_device()
