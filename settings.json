@@ -1,4 +1,7 @@
 {
     "SECURE_USB_DEVICE_NAME" : "THEDATAS",
-    "PWD_FILE" : "enpass-key.enpass"
+    "PWD_FILE" : "enpass-key.enpass",
+    "FOCUS_TIMEOUT_SECONDS": 15.0,
+    "POST_FOCUS_DELAY_SECONDS": 0.5,
+    "TYPE_INTERVAL": 0.05
 }

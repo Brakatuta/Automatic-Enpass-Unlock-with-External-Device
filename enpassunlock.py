@@ -1,11 +1,14 @@
 import os
+import sys
 import time
 import base64
 import json
 
 import psutil
 import win32api
-import win32crypt  # Added for Windows DPAPI security
+import win32crypt
+import win32gui
+import win32process
 import subprocess
 
 import pyautogui
@@ -23,10 +26,22 @@ GCM_TAG_SIZE = 16
 
 def load_settings():
     global SETTINGS
-    settings_file = os.path.join(os.path.dirname(__file__), "settings.json")
+    # check if program is exe
+    if getattr(sys, 'frozen', False):
+        # ge folder in which .exe file is located and use it as base dir
+        base_dir = os.path.dirname(sys.executable)
+    else:
+        # use folder of this .py file as base dir
+        base_dir = os.path.dirname(__file__)
+        
+    settings_file = os.path.join(base_dir, "settings.json")
+    
     if os.path.exists(settings_file):
-        with open(settings_file, 'r') as file:
+        with open(settings_file, 'r', encoding='utf-8') as file:
             SETTINGS = json.load(file)
+    else:
+        # fallback if file is missing
+        print(f"Error: settings.json not found at {settings_file}")
 
 def write_metadata(file_path, attribute_name, value):
     metadata_file = f"{file_path}{METADATA_FILE_SUFFIX}"
@@ -152,31 +167,51 @@ def decrypt_data(data : str, path : str) -> str:
 
     return data
 
+def _wait_for_enpass_focus(timeout: float = 15.0) -> bool:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        hwnd = win32gui.GetForegroundWindow()
+        if hwnd:
+            _, pid = win32process.GetWindowThreadProcessId(hwnd)
+            try:
+                proc_name = psutil.Process(pid).name().lower()
+                if "enpass" in proc_name:
+                    return True
+            except Exception:
+                pass
+        time.sleep(0.2)
+    return False
+
+
 def unlock_enpass(path : str) -> None:
     print(f"Unlocking Enpass with Secure Stick")
     file_path : str = os.path.join(path, SETTINGS["PWD_FILE"])
     if os.path.exists(file_path):
         with open(file_path, 'r') as file:
             master_password : str = file.read()
-        
+
         master_password = decrypt_data(master_password, file_path)
-        
-        # Trigger the Enpass application via URI scheme
+
         enpass_uri = "enpass://"
         subprocess.run(["start", enpass_uri], shell=True, check=True)
-        
-        # Wait for the Enpass window to open and gain active focus
-        time.sleep(1.5)
-        
-        # SECURITY UPDATE: Removed pyperclip entirely.
-        # Instead of copying to the clipboard, we type the password character by character
-        # with a minor interval delay. This ensures no background clipboard monitors can steal it.
-        pyautogui.write(master_password, interval=0.01)
+
+        focus_timeout = float(SETTINGS.get("FOCUS_TIMEOUT_SECONDS", 15.0))
+        type_interval = float(SETTINGS.get("TYPE_INTERVAL", 0.05))
+        post_focus_delay = float(SETTINGS.get("POST_FOCUS_DELAY_SECONDS", 0.5))
+
+        print("Waiting for Enpass to get focus...")
+        focused = _wait_for_enpass_focus(timeout=focus_timeout)
+
+        if not focused:
+            print(f"Warning: Enpass did not gain focus within {focus_timeout}s, typing anyway.")
+
+        time.sleep(post_focus_delay)
+
+        pyautogui.write(master_password, interval=type_interval)
         pyautogui.press('enter')
-        
-        # Re-encrypt the password on the USB stick with a new dynamic key
+
         encrypted_master_password = encrypt_data(master_password, file_path)
-        
+
         with open(file_path, 'w') as file:
             file.write(encrypted_master_password)
      

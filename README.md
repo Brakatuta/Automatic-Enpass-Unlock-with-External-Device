@@ -68,6 +68,9 @@ Place a `settings.json` file in the same directory as the script/exe:
 
 - `SECURE_USB_DEVICE_NAME` — the volume label of your USB stick (right-click the drive in Explorer → Properties to find or set it)
 - `PWD_FILE` — the filename on the USB stick that contains your master password
+- `FOCUS_TIMEOUT_SECONDS` - how long is waited at max for the Enpass window-focus
+- `POST_FOCUS_DELAY_SECONDS` - time after foxus before autofill starts
+- `TYPE_INTERVAL` - determines how fast the autofill is typing
 
 ### 4. Create the password file on the USB stick
 
