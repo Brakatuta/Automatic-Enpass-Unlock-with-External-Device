@@ -1,3 +1,4 @@
 {
-    "SECURE_USB_DEVICE_NAME" : "THEDATAS"
+    "SECURE_USB_DEVICE_NAME" : "THEDATAS",
+    "PWD_FILE" : "enpass-key.enpass"
 }

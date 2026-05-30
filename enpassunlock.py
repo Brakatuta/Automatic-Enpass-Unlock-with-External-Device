@@ -5,9 +5,9 @@ import json
 
 import psutil
 import win32api
+import win32crypt  # Added for Windows DPAPI security
 import subprocess
 
-import pyperclip
 import pyautogui
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms
@@ -15,7 +15,7 @@ from cryptography.hazmat.primitives.ciphers.modes import GCM
 from cryptography.hazmat.backends import default_backend
 
 SETTINGS : dict = {}
-KEY_FILE_NAME = "crypt_key.key"
+KEY_FILE_NAME = "crypt_key.enc"  # Changed extension to reflect it's encrypted via DPAPI
 METADATA_FILE_SUFFIX = ".metadata.json"
 GCM_IV_SIZE = 12
 GCM_TAG_SIZE = 16
@@ -59,25 +59,38 @@ def read_metadata(file_path, attribute_name):
 
 
 def get_key_file_path() -> str:
-    return os.path.join(os.path.dirname(__file__), KEY_FILE_NAME)
+    app_data = os.environ.get("APPDATA", os.path.dirname(__file__))
+    key_dir = os.path.join(app_data, "EnpassUnlocker")
+    os.makedirs(key_dir, exist_ok=True)
+    return os.path.join(key_dir, KEY_FILE_NAME)
 
 
 def create_new_crypt_key() -> bytes:
-    crypt_key = os.urandom(32)  # AES-256 requires a 32-byte key
+    raw_key = os.urandom(32)  # AES-256 requires a 32-byte key
+    
+    # Protect the key using Windows DPAPI before writing to disk.
+    # This binds the key to the current Windows user account context.
+    encrypted_key = win32crypt.CryptProtectData(raw_key, "EnpassUnlockerEntropy", b"EnpassUnlockerEntropy", None, None, 0)
+    
     key_file = get_key_file_path()
     with open(key_file, 'wb') as file:
-        file.write(crypt_key)
-    return crypt_key
+        file.write(encrypted_key)
+    return raw_key
 
 def get_crypt_key_from_file() -> bytes:
     key_file = get_key_file_path()
     if not os.path.exists(key_file):
         raise FileNotFoundError("Cryptographic key file not found.")
     with open(key_file, 'rb') as file:
-        crypt_key = file.read()
-    if len(crypt_key) != 32:
+        encrypted_key = file.read()
+        
+    # Decrypt the key using Windows DPAPI.
+    # This will fail if executed under a different Windows user account.
+    _, raw_key = win32crypt.CryptUnprotectData(encrypted_key, b"EnpassUnlockerEntropy", None, None, 0)
+        
+    if len(raw_key) != 32:
         raise ValueError("Invalid cryptographic key length.")
-    return crypt_key
+    return raw_key
 
 
 def _looks_like_encrypted_payload(data: str) -> bool:
@@ -141,25 +154,27 @@ def decrypt_data(data : str, path : str) -> str:
 
 def unlock_enpass(path : str) -> None:
     print(f"Unlocking Enpass with Secure Stick")
-    file_path : str = os.path.join(path, "enpass-key.enpass")
+    file_path : str = os.path.join(path, SETTINGS["PWD_FILE"])
     if os.path.exists(file_path):
         with open(file_path, 'r') as file:
             master_password : str = file.read()
         
         master_password = decrypt_data(master_password, file_path)
         
-        pyperclip.copy(master_password)
-        
+        # Trigger the Enpass application via URI scheme
         enpass_uri = "enpass://"
         subprocess.run(["start", enpass_uri], shell=True, check=True)
         
-        time.sleep(1)
-        pyautogui.hotkey('ctrl', 'v')
+        # Wait for the Enpass window to open and gain active focus
+        time.sleep(1.5)
+        
+        # SECURITY UPDATE: Removed pyperclip entirely.
+        # Instead of copying to the clipboard, we type the password character by character
+        # with a minor interval delay. This ensures no background clipboard monitors can steal it.
+        pyautogui.write(master_password, interval=0.01)
         pyautogui.press('enter')
         
-        time.sleep(1)
-        pyperclip.copy("")
-        
+        # Re-encrypt the password on the USB stick with a new dynamic key
         encrypted_master_password = encrypt_data(master_password, file_path)
         
         with open(file_path, 'w') as file:
